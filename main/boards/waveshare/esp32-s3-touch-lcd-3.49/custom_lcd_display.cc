@@ -68,27 +68,27 @@ void CustomLcdDisplay::lvgl_port_flush_callback(lv_display_t *drv, const lv_area
         area = &rotated_area;
     }
 #endif
-    const int flush_coun = (LVGL_SPIRAM_BUFF_LEN / LVGL_DMA_BUFF_LEN);
-    const int offgap = (DISPLAY_HEIGHT / flush_coun);
-    const int dmalen = (LVGL_DMA_BUFF_LEN / 2);
-    int offsetx1 = 0;
-    int offsety1 = 0;
-    int offsetx2 = DISPLAY_WIDTH;
-    int offsety2 = offgap;
 #if (DISPLAY_ROTATION_90 == true)
     uint16_t *map = (uint16_t*)dest_map;
 #else
     uint16_t *map = (uint16_t*)color_map;
 #endif
+    const int draw_width = lv_area_get_width(area);
+    const int max_chunk_lines = LVGL_DMA_BUFF_LEN / (draw_width * sizeof(uint16_t));
+    assert(max_chunk_lines > 0);
+
     xSemaphoreGive(trans_done_sem);
-    
-    for(int i = 0; i<flush_coun; i++) {
+
+    for (int y = area->y1; y <= area->y2; y += max_chunk_lines) {
+        int chunk_lines = area->y2 - y + 1;
+        if (chunk_lines > max_chunk_lines) {
+            chunk_lines = max_chunk_lines;
+        }
+        const size_t chunk_bytes = draw_width * chunk_lines * sizeof(uint16_t);
         xSemaphoreTake(trans_done_sem,portMAX_DELAY);
-        memcpy(trans_buf_1,map,LVGL_DMA_BUFF_LEN);
-        esp_lcd_panel_draw_bitmap(panel_handle, offsetx1, offsety1, offsetx2, offsety2, trans_buf_1);
-        offsety1 += offgap;
-        offsety2 += offgap;
-        map += dmalen;
+        memcpy(trans_buf_1, map, chunk_bytes);
+        esp_lcd_panel_draw_bitmap(panel_handle, area->x1, y, area->x2 + 1, y + chunk_lines, trans_buf_1);
+        map += draw_width * chunk_lines;
     }
     xSemaphoreTake(trans_done_sem,portMAX_DELAY);
     lv_disp_flush_ready(drv);

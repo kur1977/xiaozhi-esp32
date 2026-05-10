@@ -126,6 +126,8 @@ private:
         gpio_set_level(LCD_RST,1);
         vTaskDelay(pdMS_TO_TICKS(30));
         esp_lcd_panel_init(panel);
+        esp_lcd_panel_swap_xy(panel, DISPLAY_SWAP_XY);
+        esp_lcd_panel_mirror(panel, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y);
 
         display_ = new CustomLcdDisplay(panel_io, panel,
                                     DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY);
@@ -193,10 +195,10 @@ private:
         pointY = (((uint16_t)buff[4] & 0x0f) << 8) | (uint16_t)buff[5];
         if (buff[1]>0 && buff[1]<5) {
             indevData->state = LV_INDEV_STATE_PRESSED;
-            if(pointX > DISPLAY_WIDTH) pointX = DISPLAY_WIDTH;
-            if(pointY > DISPLAY_HEIGHT) pointY = DISPLAY_HEIGHT;
-            indevData->point.x = pointY;
-            indevData->point.y = (DISPLAY_HEIGHT-pointX);
+            if(pointX >= DISPLAY_WIDTH) pointX = DISPLAY_WIDTH - 1;
+            if(pointY >= DISPLAY_HEIGHT) pointY = DISPLAY_HEIGHT - 1;
+            indevData->point.x = pointX;
+            indevData->point.y = pointY;
             ESP_LOGE("Touch","(%ld,%ld)",indevData->point.x,indevData->point.y);
         } else {
             indevData->state = LV_INDEV_STATE_RELEASED;
