@@ -25,10 +25,6 @@
 static SemaphoreHandle_t trans_done_sem = NULL;
 static uint16_t *trans_buf_1;
 
-#if (DISPLAY_ROTATION_90 == true)
-static uint16_t *dest_map;
-#endif
-
 
 bool CustomLcdDisplay::lvgl_port_flush_io_ready_callback(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_io_event_data_t *edata, void *user_ctx) {
     BaseType_t taskAwake = pdFALSE;
@@ -48,31 +44,40 @@ void CustomLcdDisplay::lvgl_port_flush_callback(lv_display_t *drv, const lv_area
     lv_draw_sw_rgb565_swap(color_map, lv_area_get_width(area) * lv_area_get_height(area));
 
 #if (DISPLAY_ROTATION_90 == true)
-    lv_display_rotation_t rotation = lv_display_get_rotation(drv);
-    lv_area_t rotated_area;
-    if(rotation != LV_DISPLAY_ROTATION_0) {
-        lv_color_format_t cf = lv_display_get_color_format(drv);
-        /*Calculate the position of the rotated area*/
-        rotated_area = *area;
-        lv_display_rotate_area(drv, &rotated_area);
-        /*Calculate the source stride (bytes in a line) from the width of the area*/
-        uint32_t src_stride = lv_draw_buf_width_to_stride(lv_area_get_width(area), cf);
-        /*Calculate the stride of the destination (rotated) area too*/
-        uint32_t dest_stride = lv_draw_buf_width_to_stride(lv_area_get_width(&rotated_area), cf);
-        /*Have a buffer to store the rotated area and perform the rotation*/
+    uint16_t *from = (uint16_t*)color_map;
+    const int src_width = lv_area_get_width(area);
+    const int src_height = lv_area_get_height(area);
+    const int max_chunk_cols = LVGL_DMA_BUFF_LEN / (src_height * sizeof(uint16_t));
+    assert(max_chunk_cols > 0);
 
-        int32_t src_w = lv_area_get_width(area);
-        int32_t src_h = lv_area_get_height(area);
-        lv_draw_sw_rotate(color_map, dest_map, src_w, src_h, src_stride, dest_stride, rotation, cf);
-        /*Use the rotated area and rotated buffer from now on*/
-        area = &rotated_area;
+    xSemaphoreGive(trans_done_sem);
+
+    for (int x = area->x1; x <= area->x2; x += max_chunk_cols) {
+        int chunk_cols = area->x2 - x + 1;
+        if (chunk_cols > max_chunk_cols) {
+            chunk_cols = max_chunk_cols;
+        }
+
+        uint16_t *to = trans_buf_1;
+        const int src_x_offset = x - area->x1;
+        for (int src_y = 0; src_y < src_height; src_y++) {
+            for (int src_x = 0; src_x < chunk_cols; src_x++) {
+                to[src_x * src_height + (src_height - src_y - 1)] =
+                    from[src_y * src_width + src_x_offset + src_x];
+            }
+        }
+
+        xSemaphoreTake(trans_done_sem,portMAX_DELAY);
+        esp_lcd_panel_draw_bitmap(panel_handle,
+            DISPLAY_HEIGHT - area->y2 - 1,
+            x,
+            DISPLAY_HEIGHT - area->y1,
+            x + chunk_cols,
+            trans_buf_1);
     }
-#endif
-#if (DISPLAY_ROTATION_90 == true)
-    uint16_t *map = (uint16_t*)dest_map;
+    xSemaphoreTake(trans_done_sem,portMAX_DELAY);
 #else
     uint16_t *map = (uint16_t*)color_map;
-#endif
     const int draw_width = lv_area_get_width(area);
     const int max_chunk_lines = LVGL_DMA_BUFF_LEN / (draw_width * sizeof(uint16_t));
     assert(max_chunk_lines > 0);
@@ -91,6 +96,7 @@ void CustomLcdDisplay::lvgl_port_flush_callback(lv_display_t *drv, const lv_area
         map += draw_width * chunk_lines;
     }
     xSemaphoreTake(trans_done_sem,portMAX_DELAY);
+#endif
     lv_disp_flush_ready(drv);
 }
 
@@ -119,10 +125,6 @@ CustomLcdDisplay::CustomLcdDisplay(esp_lcd_panel_io_handle_t panel_io, esp_lcd_p
     lv_display_set_flush_cb(display_, lvgl_port_flush_callback);
     buffer_size = width_ * height_;
     buf1 = (lv_color_t *)heap_caps_aligned_alloc(1, buffer_size * color_bytes, MALLOC_CAP_SPIRAM);
-#if (DISPLAY_ROTATION_90 == true)
-    dest_map = (uint16_t *)heap_caps_malloc(buffer_size * color_bytes, MALLOC_CAP_SPIRAM);
-    lv_display_set_rotation(display_, LV_DISPLAY_ROTATION_90);
-#endif
     lv_display_set_buffers(display_, buf1, NULL, buffer_size * color_bytes, LV_DISPLAY_RENDER_MODE_FULL);
     lv_display_set_user_data(display_, panel_);
     lvgl_port_unlock();

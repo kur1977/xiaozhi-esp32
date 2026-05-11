@@ -195,10 +195,10 @@ private:
         pointY = (((uint16_t)buff[4] & 0x0f) << 8) | (uint16_t)buff[5];
         if (buff[1]>0 && buff[1]<5) {
             indevData->state = LV_INDEV_STATE_PRESSED;
-            if(pointX >= DISPLAY_WIDTH) pointX = DISPLAY_WIDTH - 1;
-            if(pointY >= DISPLAY_HEIGHT) pointY = DISPLAY_HEIGHT - 1;
-            indevData->point.x = pointX;
-            indevData->point.y = pointY;
+            if(pointX >= DISPLAY_HEIGHT) pointX = DISPLAY_HEIGHT - 1;
+            if(pointY >= DISPLAY_WIDTH) pointY = DISPLAY_WIDTH - 1;
+            indevData->point.x = pointY;
+            indevData->point.y = DISPLAY_HEIGHT - pointX - 1;
             ESP_LOGE("Touch","(%ld,%ld)",indevData->point.x,indevData->point.y);
         } else {
             indevData->state = LV_INDEV_STATE_RELEASED;
